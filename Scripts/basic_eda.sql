@@ -1,1 +1,180 @@
+/*
+===============================================================================
+NAME: Exploratory Data Analysis (EDA) & Business Metrics Report
+===============================================================================
+PURPOSE:
+This script serves as an analytical toolkit for investigating the 'gold' layer 
+data. Its primary purpose is to profile data quality, derive key business 
+performance indicators (KPIs), and perform multidimensional analysis (by country, 
+category, and customer) to support data-driven decision-making.
+
+GOAL:
+1. DATA PROFILING: Understand database structure, column definitions, and data distributions.
+2. BUSINESS METRICS: Calculate foundational metrics such as total revenue, order 
+   volume, and customer reach.
+3. PERFORMANCE ANALYSIS: Identify top/bottom-performing products, revenue 
+   drivers, and demographic trends.
+4. TREND ANALYSIS: Evaluate sales distribution and temporal ranges.
+
+WARNING & BEST PRACTICES:
+1. PERFORMANCE IMPACT: Queries performing large joins (e.g., 'fact_sales' with 
+   dimensions) or window functions on large datasets may impact system performance. 
+   Use 'TOP' clauses or filters where appropriate for initial investigations.
+2. AGGREGATION LOGIC: Ensure that logical grouping matches business requirements 
+   (e.g., distinguishing between 'Total Customers' and 'Customers who placed orders').
+3. DATA LATENCY: Metrics derived from 'GETDATE()' or temporal functions may 
+   change based on when the query is executed. Ensure alignment with the 
+   expected reporting period.
+4. NULL HANDLING: Be aware that 'LEFT JOIN' operations may produce NULLs if 
+   records are missing in dimension tables; consider using 'INNER JOIN' if 
+   only matched records are required.
+===============================================================================
+*/
+
+-- explore all objects in our database --
+select * from INFORMATION_SCHEMA.TABLES
+
+-- explore all columns in the db --
+select * from INFORMATION_SCHEMA.COLUMNS
+
+-- dimension exploration --
+
+-- explore all those countries he customers come from  --
+select distinct country from gold.dim_customers
+
+--explore all categories the major divisions--
+select distinct category, subcategory,product_name from gold.dim_products
+order by 1,2,3
+
+-- date exploration --
+-- fond the date of first and last order--
+-- how many years of sales is available --
+select 
+min(order_date) first_order_date,
+MAX(order_date) last_order_date,
+DATEDIFF(year,min(order_date),max(order_date)) as order_range_years
+from gold.fact_sales
+
+-- find the youngest and oldest customer--
+select 
+min(birthdate ) as oldest_customer,
+DATEDIFF(year,min(birthdate),getdate()) oldest_age,
+max(birthdate) as youngest_customer,
+DATEDIFF(year,max(birthdate),getdate()) youngest_age
+from gold.dim_customers
+
+-- measures exploration -- 
+-- total sales --
+select sum(sales_amount) as totalsales from gold.fact_sales
+
+-- no of items sold --
+select sum(quantity) as items_sold from gold.fact_sales
+
+-- avg selling price--
+select avg(price) as avg_saleprice from gold.fact_sales
+
+-- total number of orders --
+select count(distinct order_number) as total_orders from gold.fact_sales
+
+-- total number of products --
+select count(distinct product_id ) as total_products from gold.dim_products
+
+-- total number of customers--
+select count(distinct customer_id ) as total_customers from gold.dim_customers
+
+-- find the total customers that have placed an order --
+select count(distinct customer_key ) as total_customers_placedorders from gold.fact_sales
+
+
+-- generate a report that shows all key metrics of the business --
+select'Total_sales' as measure_name, sum(sales_amount) as measure_value from gold.fact_sales
+union all 
+select'Total_Quantity' as measure_name, sum(quantity) as measure_value from gold.fact_sales
+union all
+select'Avg_price' as measure_name, avg(price) as measure_value from gold.fact_sales
+union all 
+select'Total_orders' as measure_name, count(distinct order_number) as measure_value from gold.fact_sales
+
+
+-- magnitude analysis ---
+-- total customers by country
+select country,count(distinct customer_number) as Total_Customers from gold.dim_customers
+group by country
+order by Total_Customers desc
+
+-- total customers by gender --
+select gender,count(distinct customer_number) as Total_Customers from gold.dim_customers
+group by gender
+order by Total_Customers desc
+
+--total products by category--
+select category,count(distinct product_number) as Total_products from gold.dim_products
+group by category
+order by Total_products desc
+
+-- avg costs in each category--
+select category,avg(cost) as avg_cost from gold.dim_products
+group by category
+order by avg_cost desc
+
+-- total revenue generated in each category --
+select p.category,sum(f.sales_amount) as total_revenue from gold.fact_sales f
+left join gold.dim_products p
+on p.product_key = f.product_key
+group by p.category
+order by total_revenue desc
+
+-- total revenue generated by each customer --
+select c.customer_key,c.first_name,c.last_name,sum(f.sales_amount) as total_revenue from gold.fact_sales f
+left join gold.dim_customers c
+on c.customer_key = f.customer_key
+group by c.customer_key,c.first_name,c.last_name
+order by total_revenue desc
+
+-- distribution of items sold across countries --
+select c.country,sum(f.quantity) as total_sold_items,
+cast(round(SUM(f.quantity) * 100.0 / SUM(SUM(f.quantity)) OVER(),2)as decimal(10,2)) AS percentage_of_total
+from gold.fact_sales f
+left join gold.dim_customers c
+on c.customer_key = f.customer_key
+group by c.country
+order by total_sold_items desc
+
+--ranking analysis --
+-- top 5 products generate highest revene --
+select top 5 product_name, sum(f.sales_amount) as total_revenue from gold.fact_sales f
+left join gold.dim_products p on
+p.product_key = f.product_key
+group by p.product_name
+order by total_revenue desc
+
+-- bottom 5 worst performing product by revenue -- 
+select top 5 product_name, sum(f.sales_amount) as total_revenue from gold.fact_sales f
+left join gold.dim_products p on
+p.product_key = f.product_key
+group by p.product_name
+order by total_revenue asc
+
+--- using the window functions ---
+-- top 5 products generate highest revene --
+select
+*
+from(
+	select p.product_name, sum(f.sales_amount) as total_revenue,
+	ROW_NUMBER() over(order by sum(f.sales_amount) desc) as rank_products
+	from gold.fact_sales f
+	left join gold.dim_products p on
+	p.product_key = f.product_key
+	group by p.product_name
+	)t where rank_products <= 5
+
+
+
+
+
+
+
+
+
+
 
